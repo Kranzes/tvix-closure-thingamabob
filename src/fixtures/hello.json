@@ -1,0 +1,96 @@
+{
+  "buildCommand": "mkdir -p $out/nar\n\necho $NIX_ATTRS_JSON_FILE\ncat $NIX_ATTRS_JSON_FILE > $out/attrs.json\n\npython /nix/store/739lvap0p329mpahi1hicn6p0b3say1w-make-binary-cache.py\n\n# These directories must exist, or Nix might try to create them in LocalBinaryCacheStore::init(),\n# which fails if mounted read-only\nmkdir $out/realisations\nmkdir $out/debuginfo\nmkdir $out/log\n",
+  "buildInputs": [],
+  "builder": "/nix/store/4vzal97iq3dmrgycj8r0gflrh51p8w1s-bash-5.2p26/bin/bash",
+  "closure": [
+    {
+      "closureSize": 32836680,
+      "narHash": "sha256:0n8zlcci0hr8m8kmy2qp2xw2rgr6rh3c5kk17nccbm27ydfl7g1r",
+      "narSize": 226560,
+      "path": "/nix/store/7bl684y3qpxrv01ird085rpf5kl6rk6f-hello-2.12.1",
+      "references": [
+        "/nix/store/7bl684y3qpxrv01ird085rpf5kl6rk6f-hello-2.12.1",
+        "/nix/store/ksk3rnb0ljx8gngzk19jlmbjyvac4hw6-glibc-2.38-44"
+      ],
+      "valid": true
+    },
+    {
+      "closureSize": 159560,
+      "narHash": "sha256:10q8iyvfmpfck3yiisnj1j8vp6lq3km17r26sr95zpdf9mgmk69s",
+      "narSize": 159560,
+      "path": "/nix/store/d8w5qfswmgxcjqwnmqw2v9r8amrvdlpb-xgcc-13.2.0-libgcc",
+      "references": [],
+      "valid": true
+    },
+    {
+      "closureSize": 2190120,
+      "narHash": "sha256:1alzlkkbikwcnwbi5j3l3fjmy8x1vc68gak8c87arvd3bffmpm1p",
+      "narSize": 361136,
+      "path": "/nix/store/krqp9wj3rgalmqv04y0sqw987mxsnddn-libidn2-2.3.7",
+      "references": [
+        "/nix/store/krqp9wj3rgalmqv04y0sqw987mxsnddn-libidn2-2.3.7",
+        "/nix/store/vqvbn2z8wyrjwvayjb2vy5krhh1kis9b-libunistring-1.1"
+      ],
+      "valid": true
+    },
+    {
+      "closureSize": 32610120,
+      "narHash": "sha256:0pf741721gby9n0pa2qc21a9n6ikx5cflvd8hcf00xzaz5zbq6j9",
+      "narSize": 30260440,
+      "path": "/nix/store/ksk3rnb0ljx8gngzk19jlmbjyvac4hw6-glibc-2.38-44",
+      "references": [
+        "/nix/store/d8w5qfswmgxcjqwnmqw2v9r8amrvdlpb-xgcc-13.2.0-libgcc",
+        "/nix/store/krqp9wj3rgalmqv04y0sqw987mxsnddn-libidn2-2.3.7",
+        "/nix/store/ksk3rnb0ljx8gngzk19jlmbjyvac4hw6-glibc-2.38-44"
+      ],
+      "valid": true
+    },
+    {
+      "closureSize": 1828984,
+      "narHash": "sha256:1c3yxqm41s02rwh84if0jjfbzrsqnncjdqz5j7p1ml8rn6s3ci4f",
+      "narSize": 1828984,
+      "path": "/nix/store/vqvbn2z8wyrjwvayjb2vy5krhh1kis9b-libunistring-1.1",
+      "references": [
+        "/nix/store/vqvbn2z8wyrjwvayjb2vy5krhh1kis9b-libunistring-1.1"
+      ],
+      "valid": true
+    }
+  ],
+  "cmakeFlags": [],
+  "configureFlags": [],
+  "depsBuildBuild": [],
+  "depsBuildBuildPropagated": [],
+  "depsBuildTarget": [],
+  "depsBuildTargetPropagated": [],
+  "depsHostHost": [],
+  "depsHostHostPropagated": [],
+  "depsTargetTarget": [],
+  "depsTargetTargetPropagated": [],
+  "doCheck": false,
+  "doInstallCheck": false,
+  "env": {},
+  "exportReferencesGraph": {
+    "closure": [
+      "/nix/store/7bl684y3qpxrv01ird085rpf5kl6rk6f-hello-2.12.1"
+    ]
+  },
+  "mesonFlags": [],
+  "name": "binary-cache",
+  "nativeBuildInputs": [
+    "/nix/store/mb488rr560vq1xnl10hinnyfflcrd51n-coreutils-9.4",
+    "/nix/store/yhp3xxqyl9d81nni9ifwwqg2dv550c1z-jq-1.7.1-dev",
+    "/nix/store/3v2ch16fkl50i85n05h5ckss8pxx6836-python3-3.11.8",
+    "/nix/store/9yip3nb3h38cxnvlxml1xsr8j12a9n4f-nix-2.18.1-dev",
+    "/nix/store/mrzy62sslyjsw92g2lm4zk7jym0mdv97-xz-5.6.0-dev"
+  ],
+  "outputs": {
+    "out": "/nix/store/l6i38qxslp7ih1w0a63nmpm82wwb64d9-binary-cache"
+  },
+  "patches": [],
+  "preferLocalBuild": true,
+  "propagatedBuildInputs": [],
+  "propagatedNativeBuildInputs": [],
+  "stdenv": "/nix/store/v099hqvw5z87423p4hz1vfhzaqa07dii-stdenv-linux",
+  "strictDeps": false,
+  "system": "x86_64-linux"
+}
