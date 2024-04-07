@@ -1,13 +1,14 @@
 [package]
-name = "tvix_narinfo_thingamabob"
+name = "tvix_closure_thingamabob"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { version = "1.0.197", features = ["derive"] }
-serde_json = "1.0.114"
+serde = { version = "1.0.197", default-features = false }
+serde_json = { default-features = false, version = "1.0.114" }
 nix-compat = { git = "https://code.tvl.fyi/depot.git:/tvix/nix-compat.git" }
 rstest = { version = "0.18.2", default-features = false }
+petgraph = { features = ["stable_graph"], default-features = false, version = "0.6.4" }
 
 [profile.release]
 lto = true

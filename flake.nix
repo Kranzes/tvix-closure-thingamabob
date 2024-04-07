@@ -31,7 +31,7 @@
               inherit src;
               cargoLock = {
                 lockFile = (src + "/Cargo.lock");
-                outputHashes."nix-compat-0.1.0" = "sha256-8VJUMkxPQkFUsonIJviQGMQtO/0khi3/82sP2eq7Vu8=";
+                outputHashes."nix-compat-0.1.0" = "sha256-FvLWBQsEPxJLwLmO0q6t9eWugduVlaBWIufItpSgLLk=";
               };
               useNextest = true;
             };
@@ -47,6 +47,7 @@
                 cargo-nextest
                 cargo-watch
                 cargo-info
+                cargo-unused-features
               ];
             };
             default = config.devShells.${package.name};
