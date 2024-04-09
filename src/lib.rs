@@ -18,47 +18,48 @@ pub struct Closure<'a> {
     pub(self) closure: Vec<ClosureInner<'a>>,
 }
 
-impl Closure<'_> {
-    pub fn to_graph(&self) -> Result<StableGraph<StorePathRef, ()>, Box<dyn std::error::Error>> {
+pub struct ClosureGraph<'a>(StableGraph<StorePathRef<'a>, ()>);
+
+impl<'a> ClosureGraph<'a> {
+    pub fn upload_all(&self) -> HashSet<StorePathRef> {
+        let mut topo = Topo::new(&self.0);
+        let mut uploaded = HashSet::new();
+        while let Some(node) = topo.next(&self.0) {
+            if let Some(store_path) = self.0.node_weight(node) {
+                uploaded.insert(*store_path);
+                println!("Uploaded {}", store_path);
+            }
+        }
+        uploaded
+    }
+}
+
+impl<'a> From<&Closure<'a>> for ClosureGraph<'a> {
+    fn from(c: &Closure<'a>) -> Self {
         let mut graph = StableGraph::new();
 
-        let node_index_map: HashMap<_, _> = self
-            .closure
-            .iter()
-            .map(|closure| (closure.store_path, graph.add_node(closure.store_path)))
-            .collect();
+        let mut node_index_map = HashMap::new();
+        for c in &c.closure {
+            let store_path = c.store_path;
+            node_index_map.insert(store_path, graph.add_node(store_path));
+        }
 
-        for closure in &self.closure {
-            for (node, source_index) in &node_index_map {
-                if closure.references.contains(node) {
-                    if let Some(target_index) = node_index_map.get(&closure.store_path) {
-                        if target_index != source_index {
-                            graph.add_edge(*source_index, *target_index, ());
-                        }
-                    }
+        for closure in &c.closure {
+            let target_index = node_index_map.get(&closure.store_path).unwrap();
+            for (store_path, source_index) in &node_index_map {
+                if closure.references.contains(store_path) && target_index != source_index {
+                    graph.add_edge(*source_index, *target_index, ());
                 }
             }
         }
 
-        Ok(graph)
+        ClosureGraph(graph)
     }
-}
-
-pub fn do_work(graph: StableGraph<StorePathRef, ()>) -> HashSet<StorePathRef> {
-    let mut topo = Topo::new(&graph);
-    let mut uploaded = HashSet::new();
-    while let Some(node) = topo.next(&graph) {
-        if let Some(store_path) = graph.node_weight(node) {
-            uploaded.insert(*store_path);
-            println!("Uploaded {}", store_path);
-        }
-    }
-    uploaded
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{do_work, Closure};
+    use crate::{Closure, ClosureGraph};
     use nix_compat::store_path::StorePathRef;
     use rstest::rstest;
     use std::{collections::HashSet, path::PathBuf};
@@ -67,7 +68,7 @@ mod tests {
     fn all_references_uploaded(#[files("src/fixtures/*.json")] fixture_path: PathBuf) {
         let json_data = std::fs::read(fixture_path).unwrap();
         let closure: Closure = serde_json::from_slice(&json_data).unwrap();
-        let graph = closure.to_graph().unwrap();
+        let graph = ClosureGraph::from(&closure);
 
         let all_references: HashSet<StorePathRef> = closure
             .closure
@@ -75,7 +76,7 @@ mod tests {
             .flat_map(|x| x.references.clone())
             .collect();
 
-        let uploaded = do_work(graph);
+        let uploaded = graph.upload_all();
 
         assert_eq!(all_references, uploaded);
     }
