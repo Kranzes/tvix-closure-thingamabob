@@ -20,12 +20,15 @@ pub struct Closure<'a> {
 
 pub struct ClosureGraph<'a>(StableGraph<StorePathRef<'a>, ()>);
 
-impl<'a> ClosureGraph<'a> {
+impl ClosureGraph<'_> {
+    /// Uploads all the [`StorePathRef`]'s in the [`ClosureGraph`] and returns them in a [`HashSet`].
     pub fn upload_all(&self) -> HashSet<StorePathRef> {
         let mut topo = Topo::new(&self.0);
         let mut uploaded = HashSet::new();
+        // We use Topological Sorting to sort the graph and upload the store path as soon as it gets sorted.
         while let Some(node) = topo.next(&self.0) {
             if let Some(store_path) = self.0.node_weight(node) {
+                // TODO: plug into tvix's closure uploader.
                 uploaded.insert(*store_path);
                 println!("Uploaded {}", store_path);
             }
@@ -35,15 +38,20 @@ impl<'a> ClosureGraph<'a> {
 }
 
 impl<'a> From<&Closure<'a>> for ClosureGraph<'a> {
+    /// Creates a new [`ClosureGraph`] from a [`Closure`]
     fn from(c: &Closure<'a>) -> Self {
         let mut graph = StableGraph::new();
 
+        // Creates a `HashMap` binding each store path to its corresponding node index in the
+        // graph. We use the store path as the node's weight/label, so this `HashMap` comes in
+        // handy for looking up the node index for each store path.
         let mut node_index_map = HashMap::new();
         for c in &c.closure {
             let store_path = c.store_path;
             node_index_map.insert(store_path, graph.add_node(store_path));
         }
 
+        // Populates the by connecting nodes (store paths) that are referenced by other nodes.
         for closure in &c.closure {
             let target_index = node_index_map.get(&closure.store_path).unwrap();
             for (store_path, source_index) in &node_index_map {
@@ -53,7 +61,7 @@ impl<'a> From<&Closure<'a>> for ClosureGraph<'a> {
             }
         }
 
-        ClosureGraph(graph)
+        Self(graph)
     }
 }
 
@@ -70,6 +78,7 @@ mod tests {
         let closure: Closure = serde_json::from_slice(&json_data).unwrap();
         let graph = ClosureGraph::from(&closure);
 
+        // These are all the store paths that we expect to get uploaded.
         let all_references: HashSet<StorePathRef> = closure
             .closure
             .iter()
@@ -78,6 +87,7 @@ mod tests {
 
         let uploaded = graph.upload_all();
 
+        // We check that all the store paths indeed end up getting uploaded.
         assert_eq!(all_references, uploaded);
     }
 }
