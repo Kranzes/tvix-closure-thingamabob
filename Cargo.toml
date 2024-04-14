@@ -8,7 +8,7 @@ serde = { version = "1.0.197", default-features = false }
 serde_json = { default-features = false, version = "1.0.114" }
 nix-compat = { git = "https://code.tvl.fyi/depot.git:/tvix/nix-compat.git" }
 rstest = { version = "0.18.2", default-features = false }
-petgraph = { features = ["stable_graph"], default-features = false, version = "0.6.4" }
+petgraph = { features = ["graphmap"], default-features = false, version = "0.6.4" }
 
 [profile.release]
 lto = true

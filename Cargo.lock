@@ -257,7 +257,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 [[package]]
 name = "nix-compat"
 version = "0.1.0"
-source = "git+https://code.tvl.fyi/depot.git:/tvix/nix-compat.git#e2630b82ea0db0c9e26159ce710cb57f7024bdfe"
+source = "git+https://code.tvl.fyi/depot.git:/tvix/nix-compat.git#db8935a9ad0601adcba7ee2bd82626a8dc156c8d"
 dependencies = [
  "bitflags",
  "bstr",
@@ -330,9 +330,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.35"
+version = "1.0.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "291ec9ab5efd934aaf503a6466c5d5251535d108ee747472c3977cc5acc868ef"
+checksum = "0fa76aaf39101c457836aec0ce2316dbdc3ab723cdda1c6bd4e6ad4208acaca7"
 dependencies = [
  "proc-macro2",
 ]

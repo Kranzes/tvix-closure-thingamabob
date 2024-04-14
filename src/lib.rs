@@ -1,74 +1,52 @@
-use nix_compat::store_path::StorePathRef;
-use petgraph::{stable_graph::StableGraph, visit::Topo};
+use nix_compat::path_info::ExportedPathInfo;
+use petgraph::{graphmap::DiGraphMap, visit::Topo};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
-
-#[derive(Deserialize)]
-struct ClosureInner<'a> {
-    #[serde(borrow)]
-    #[serde(rename = "path")]
-    store_path: StorePathRef<'a>,
-    #[serde(borrow)]
-    references: Vec<StorePathRef<'a>>,
-}
+use std::collections::HashSet;
 
 #[derive(Deserialize)]
 pub struct Closure<'a> {
     #[serde(borrow)]
-    pub(self) closure: Vec<ClosureInner<'a>>,
+    pub(self) closure: Vec<ExportedPathInfo<'a>>,
 }
 
-pub struct ClosureGraph<'a>(StableGraph<StorePathRef<'a>, ()>);
+pub struct ClosureGraph<'a>(DiGraphMap<&'a ExportedPathInfo<'a>, ()>);
 
 impl ClosureGraph<'_> {
     /// Uploads all the [`StorePathRef`]'s in the [`ClosureGraph`] and returns them in a [`HashSet`].
-    pub fn upload_all(&self) -> HashSet<StorePathRef> {
+    pub fn upload_all(&self) -> HashSet<&ExportedPathInfo> {
         let mut topo = Topo::new(&self.0);
         let mut uploaded = HashSet::new();
         // We use Topological Sorting to sort the graph and upload the store path as soon as it gets sorted.
-        while let Some(node) = topo.next(&self.0) {
-            if let Some(store_path) = self.0.node_weight(node) {
-                // TODO: plug into tvix's closure uploader.
-                uploaded.insert(*store_path);
-                println!("Uploaded {}", store_path);
-            }
+        while let Some(path_info) = topo.next(&self.0) {
+            uploaded.insert(path_info);
+            println!("Uploaded {}", path_info.path);
         }
         uploaded
     }
 }
 
-impl<'a> From<&Closure<'a>> for ClosureGraph<'a> {
+impl<'a> From<&'a Closure<'a>> for ClosureGraph<'a> {
     /// Creates a new [`ClosureGraph`] from a [`Closure`]
-    fn from(c: &Closure<'a>) -> Self {
-        let mut graph = StableGraph::new();
+    fn from(c: &'a Closure<'a>) -> ClosureGraph<'a> {
+        // Create edges from nodes (store paths) that are referenced by other nodes.
+        let edges = c.closure.iter().flat_map(|target_path| {
+            c.closure
+                .iter()
+                .filter(|source_path| {
+                    source_path.path != target_path.path // Avoid self references.
+                    && target_path.references.contains(&source_path.path)
+                })
+                .map(move |source_path| (source_path, target_path))
+        });
 
-        // Creates a `HashMap` binding each store path to its corresponding node index in the
-        // graph. We use the store path as the node's weight/label, so this `HashMap` comes in
-        // handy for looking up the node index for each store path.
-        let mut node_index_map = HashMap::new();
-        for c in &c.closure {
-            let store_path = c.store_path;
-            node_index_map.insert(store_path, graph.add_node(store_path));
-        }
-
-        // Populates the by connecting nodes (store paths) that are referenced by other nodes.
-        for closure in &c.closure {
-            let target_index = node_index_map.get(&closure.store_path).unwrap();
-            for (store_path, source_index) in &node_index_map {
-                if closure.references.contains(store_path) && target_index != source_index {
-                    graph.add_edge(*source_index, *target_index, ());
-                }
-            }
-        }
-
-        Self(graph)
+        // Construct the graph directly from the iterator of edges.
+        Self(DiGraphMap::from_edges(edges))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{Closure, ClosureGraph};
-    use nix_compat::store_path::StorePathRef;
     use rstest::rstest;
     use std::{collections::HashSet, path::PathBuf};
 
@@ -78,16 +56,12 @@ mod tests {
         let closure: Closure = serde_json::from_slice(&json_data).unwrap();
         let graph = ClosureGraph::from(&closure);
 
-        // These are all the store paths that we expect to get uploaded.
-        let all_references: HashSet<StorePathRef> = closure
-            .closure
-            .iter()
-            .flat_map(|x| x.references.clone())
-            .collect();
+        // These are all the store that we expect to get uploaded.
+        let all_paths = closure.closure.iter().collect::<HashSet<_>>();
 
-        let uploaded = graph.upload_all();
+        let uploaded_paths = graph.upload_all();
 
-        // We check that all the store paths indeed end up getting uploaded.
-        assert_eq!(all_references, uploaded);
+        // We check that all the paths indeed end up getting uploaded.
+        assert_eq!(all_paths, uploaded_paths);
     }
 }
