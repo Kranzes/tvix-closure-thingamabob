@@ -1,7 +1,9 @@
 use nix_compat::path_info::ExportedPathInfo;
-use petgraph::{graphmap::DiGraphMap, visit::Topo};
+use petgraph::{
+    algo::{toposort, Cycle},
+    graphmap::DiGraphMap,
+};
 use serde::Deserialize;
-use std::collections::HashSet;
 
 #[derive(Deserialize)]
 pub struct Closure<'a> {
@@ -12,16 +14,14 @@ pub struct Closure<'a> {
 pub struct ClosureGraph<'a>(DiGraphMap<&'a ExportedPathInfo<'a>, ()>);
 
 impl ClosureGraph<'_> {
-    /// Uploads all the [`StorePathRef`]'s in the [`ClosureGraph`] and returns them in a [`HashSet`].
-    pub fn upload_all(&self) -> HashSet<&ExportedPathInfo> {
-        let mut topo = Topo::new(&self.0);
-        let mut uploaded = HashSet::new();
-        // We use Topological Sorting to sort the graph and upload the store path as soon as it gets sorted.
-        while let Some(path_info) = topo.next(&self.0) {
-            uploaded.insert(path_info);
-            println!("Uploaded {}", path_info.path);
-        }
-        uploaded
+    /// Sorts all the [`ExportedPathInfo`]'s in the [`ClosureGraph`] and returns them in a [`Vec`].
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if a cycle is found in the graph.
+    pub fn sort(&self) -> Result<Vec<&ExportedPathInfo>, Cycle<&ExportedPathInfo>> {
+        // We use Topological Sorting to sort the graph.
+        toposort(&self.0, None)
     }
 }
 
@@ -51,17 +51,22 @@ mod tests {
     use std::{collections::HashSet, path::PathBuf};
 
     #[rstest]
-    fn all_references_uploaded(#[files("src/fixtures/*.json")] fixture_path: PathBuf) {
+    fn all_paths_sorted(#[files("src/fixtures/*.json")] fixture_path: PathBuf) {
         let json_data = std::fs::read(fixture_path).unwrap();
         let closure: Closure = serde_json::from_slice(&json_data).unwrap();
         let graph = ClosureGraph::from(&closure);
 
-        // These are all the store that we expect to get uploaded.
+        // These are all the store that we expect to get sorted.
         let all_paths = closure.closure.iter().collect::<HashSet<_>>();
+        // We convert the `Vec`'s to `HashSet`'s because we don't care for the order of the `Vec`..
+        let all_paths_sorted = graph
+            .sort()
+            .unwrap()
+            .into_iter()
+            .inspect(|p| println!("{}", p.path)) // Print each path for easier debugging.
+            .collect::<HashSet<_>>();
 
-        let uploaded_paths = graph.upload_all();
-
-        // We check that all the paths indeed end up getting uploaded.
-        assert_eq!(all_paths, uploaded_paths);
+        // We check that we didn't lose a path during the sorting.
+        assert_eq!(all_paths, all_paths_sorted);
     }
 }
