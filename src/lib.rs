@@ -1,9 +1,12 @@
+use futures::{stream, StreamExt};
 use nix_compat::path_info::ExportedPathInfo;
 use petgraph::{
     algo::{toposort, Cycle},
     graphmap::DiGraphMap,
 };
 use serde::Deserialize;
+use std::collections::HashSet;
+use tokio::sync::RwLock;
 
 #[derive(Deserialize)]
 pub struct Closure<'a> {
@@ -44,11 +47,59 @@ impl<'a> From<&'a Closure<'a>> for ClosureGraph<'a> {
     }
 }
 
+/// Uploads a single [`ExportedPathInfo`].
+async fn upload<'a>(
+    p: &'a ExportedPathInfo<'a>,
+    graph: &ClosureGraph<'_>,
+    uploaded: &RwLock<HashSet<&'a ExportedPathInfo<'a>>>,
+) {
+    // We check that all the references are already uploaded.
+    let ready_for_upload = stream::iter(graph.0.neighbors_directed(p, petgraph::Incoming))
+        .all(|r| async move { uploaded.read().await.contains(&r) })
+        .await;
+
+    if ready_for_upload {
+        println!("UP {}", p.path);
+        // TODO: Plug into an actual uploader.
+        uploaded.write().await.insert(p);
+    } else {
+        println!("SKP {}", p.path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Closure, ClosureGraph};
+    use crate::{upload, Closure, ClosureGraph};
     use rstest::rstest;
     use std::{collections::HashSet, path::PathBuf};
+    use tokio::sync::RwLock;
+
+    #[rstest]
+    #[tokio::test]
+    async fn upload_all(#[files("src/fixtures/*.json")] fixture_path: PathBuf) {
+        let json_data = std::fs::read(fixture_path).unwrap();
+        let closure: Closure = serde_json::from_slice(&json_data).unwrap();
+        let graph = ClosureGraph::from(&closure);
+
+        let all_paths_sorted = graph.sort().unwrap();
+
+        let uploaded = RwLock::new(HashSet::new());
+
+        // Push tasks until all store paths have been uploaded.
+        while uploaded.read().await.len() != all_paths_sorted.len() {
+            let mut tasks = Vec::new();
+            for path in &all_paths_sorted {
+                if !uploaded.read().await.contains(path) {
+                    tasks.push(upload(path, &graph, &uploaded));
+                }
+            }
+
+            futures_buffered::join_all(tasks).await;
+        }
+
+        let all_paths = closure.closure.iter().collect::<HashSet<_>>();
+        assert_eq!(all_paths, uploaded.into_inner());
+    }
 
     #[rstest]
     fn all_paths_sorted(#[files("src/fixtures/*.json")] fixture_path: PathBuf) {
