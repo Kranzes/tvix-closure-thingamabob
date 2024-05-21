@@ -1,39 +1,107 @@
-use futures::{stream, StreamExt};
+use async_stream::stream;
+use futures_util::{Future, Stream, StreamExt};
 use nix_compat::path_info::ExportedPathInfo;
-use petgraph::{
-    algo::{toposort, Cycle},
-    graphmap::DiGraphMap,
+use petgraph::graphmap::DiGraphMap;
+use std::{collections::HashSet, ops::Deref};
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    RwLock,
 };
-use serde::Deserialize;
-use std::collections::HashSet;
-use tokio::sync::RwLock;
+use tokio_stream::wrappers::ReceiverStream;
 
-#[derive(Deserialize)]
-pub struct Closure<'a> {
-    #[serde(borrow)]
-    pub(self) closure: Vec<ExportedPathInfo<'a>>,
+pub struct ClosureGraph<'a, 'data> {
+    graph: RwLock<DiGraphMap<&'a ExportedPathInfo<'data>, ()>>,
+    uploaded: RwLock<HashSet<&'a ExportedPathInfo<'data>>>,
+    tx: Sender<ExportedPathInfo<'data>>,
+    rx: Option<Receiver<ExportedPathInfo<'data>>>,
 }
 
-pub struct ClosureGraph<'a>(DiGraphMap<&'a ExportedPathInfo<'a>, ()>);
+async fn get_ready_paths<'a, 'data: 'a, G, U>(graph: G, uploaded: U) -> Vec<ExportedPathInfo<'data>>
+where
+    G: Deref<Target = DiGraphMap<&'a ExportedPathInfo<'data>, ()>>,
+    U: Deref<Target = HashSet<&'a ExportedPathInfo<'data>>>,
+{
+    graph
+        .nodes()
+        .filter(|&path| {
+            graph
+                .neighbors_directed(path, petgraph::Incoming)
+                .all(|r| uploaded.contains(&r))
+        })
+        .map(|p| p.to_owned())
+        .collect()
+}
 
-impl ClosureGraph<'_> {
-    /// Sorts all the [`ExportedPathInfo`]'s in the [`ClosureGraph`] and returns them in a [`Vec`].
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if a cycle is found in the graph.
-    pub fn sort(&self) -> Result<Vec<&ExportedPathInfo>, Cycle<&ExportedPathInfo>> {
-        // We use Topological Sorting to sort the graph.
-        toposort(&self.0, None)
+impl<'a, 'data> ClosureGraph<'a, 'data> {
+    pub async fn paths_to_upload(&'a mut self) -> impl Stream<Item = ExportedPathInfo> + 'data
+    where
+        'a: 'data,
+    {
+        //let ready_paths =
+        //    get_ready_paths(self.graph.read().await, self.uploaded.read().await).await;
+        //let tx = self.tx.take().unwrap();
+        //tokio::spawn(async move {
+        //    for path in ready_paths {
+        //        tx.send(path).await.unwrap()
+        //    }
+        //});
+        let graph = self.graph.read().await;
+        let uploaded = self.uploaded.read().await;
+        stream! {
+            let ready_for_upload = {
+                graph.nodes().filter(|&path| {
+                  graph
+                      .neighbors_directed(path, petgraph::Incoming)
+                      .all(|r| uploaded.contains(&r))
+                }).map(|p| p.to_owned()).collect::<Vec<_>>()
+            };
+
+            for path in ready_for_upload {
+               yield path;
+            }
+        }
+        .chain(ReceiverStream::new(self.rx.take().unwrap()))
+        //stream! {
+        //    loop {
+        //        let graph = self.graph.read().await;
+        //
+        //        if graph.node_count() == 0 {
+        //            break;
+        //        }
+        //
+        //        let ready_for_upload = {
+        //            let uploaded = self.uploaded.read().await;
+        //            graph.nodes().filter(|&path| {
+        //              graph
+        //                  .neighbors_directed(path, petgraph::Incoming)
+        //                  .all(|r| uploaded.contains(&r))
+        //            }).collect::<Vec<_>>()
+        //        };
+        //
+        //        for path in ready_for_upload {
+        //           yield path;
+        //        }
+        //    }
+        //}
     }
-}
 
-impl<'a> From<&'a Closure<'a>> for ClosureGraph<'a> {
-    /// Creates a new [`ClosureGraph`] from a [`Closure`]
-    fn from(c: &'a Closure<'a>) -> ClosureGraph<'a> {
-        // Create edges from nodes (store paths) that are referenced by other nodes.
-        let edges = c.closure.iter().flat_map(|target_path| {
-            c.closure
+    pub async fn mark_uploaded(&self, path: &'a ExportedPathInfo<'data>) {
+        self.uploaded.write().await.insert(path);
+        self.graph.write().await.remove_node(path);
+        for p in get_ready_paths(self.graph.read().await, self.uploaded.read().await).await {
+            self.tx.send(p).await.unwrap();
+        }
+    }
+
+    pub fn from_exported_pathinfos(
+        exported_pathinfos: &'a [ExportedPathInfo<'data>],
+    ) -> ClosureGraph<'a, 'data>
+//where
+    //    'b: 'a,
+    {
+        // Create edges from nodes (exported path infos) that are referenced by other nodes.
+        let edges = exported_pathinfos.iter().flat_map(|target_path| {
+            exported_pathinfos
                 .iter()
                 .filter(|source_path| {
                     source_path.path != target_path.path // Avoid self references.
@@ -42,82 +110,76 @@ impl<'a> From<&'a Closure<'a>> for ClosureGraph<'a> {
                 .map(move |source_path| (source_path, target_path))
         });
 
-        // Construct the graph directly from the iterator of edges.
-        Self(DiGraphMap::from_edges(edges))
-    }
-}
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
 
-/// Uploads a single [`ExportedPathInfo`].
-async fn upload<'a>(
-    p: &'a ExportedPathInfo<'a>,
-    graph: &ClosureGraph<'_>,
-    uploaded: &RwLock<HashSet<&'a ExportedPathInfo<'a>>>,
-) {
-    // We check that all the references are already uploaded.
-    let ready_for_upload = stream::iter(graph.0.neighbors_directed(p, petgraph::Incoming))
-        .all(|r| async move { uploaded.read().await.contains(&r) })
-        .await;
-
-    if ready_for_upload {
-        println!("UP {}", p.path);
-        // TODO: Plug into an actual uploader.
-        uploaded.write().await.insert(p);
-    } else {
-        println!("SKP {}", p.path)
+        Self {
+            graph: RwLock::new(DiGraphMap::from_edges(edges)),
+            uploaded: RwLock::new(HashSet::new()),
+            tx,
+            rx: Some(rx),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{upload, Closure, ClosureGraph};
+    use super::*;
+    use futures_util::{pin_mut, StreamExt};
+    use rand::Rng;
     use rstest::rstest;
-    use std::{collections::HashSet, path::PathBuf};
-    use tokio::sync::RwLock;
+    use serde::Deserialize;
+    use std::path::PathBuf;
+    use tokio::{
+        task::JoinSet,
+        time::{sleep, Duration},
+    };
+
+    #[derive(Deserialize)]
+    struct Closure<'a> {
+        #[serde(borrow)]
+        closure: Vec<ExportedPathInfo<'a>>,
+    }
 
     #[rstest]
     #[tokio::test]
     async fn upload_all(#[files("src/fixtures/*.json")] fixture_path: PathBuf) {
-        let json_data = std::fs::read(fixture_path).unwrap();
-        let closure: Closure = serde_json::from_slice(&json_data).unwrap();
-        let graph = ClosureGraph::from(&closure);
+        let json_data = tokio::fs::read(fixture_path).await.unwrap();
+        let c: Closure = serde_json::from_slice(&json_data).unwrap();
+        let mut graph = ClosureGraph::from_exported_pathinfos(&c.closure);
 
-        let all_paths_sorted = graph.sort().unwrap();
+        //let mut set = JoinSet::new();
+        let stream = graph.paths_to_upload();
+        //pin_mut!(stream);
 
-        let uploaded = RwLock::new(HashSet::new());
+        //stream
+        //    .await
+        //    .for_each_concurrent(None, |path| async move {
+        //        sleep(Duration::from_secs(rand::thread_rng().gen_range(0..2))).await;
+        //        graph.mark_uploaded(&path).await;
+        //        println!("{}", path.path);
+        //    })
+        //    .await;
 
-        // Push tasks until all store paths have been uploaded.
-        while uploaded.read().await.len() != all_paths_sorted.len() {
-            let mut tasks = Vec::new();
-            for path in &all_paths_sorted {
-                if !uploaded.read().await.contains(path) {
-                    tasks.push(upload(path, &graph, &uploaded));
-                }
-            }
+        //while let Some(path) = stream.await.next().await {
+        //    graph.mark_uploaded(&path);
+        //    println!("{}", path.path);
+        //}
 
-            futures_buffered::join_all(tasks).await;
-        }
+        //if let Some((path, mark_uploaded)) = stream.next().await {
+        //    set.spawn(async move {
+        //        println!("Attempting to uploaded {}", path.path);
+        //        sleep(Duration::from_secs(rand::thread_rng().gen_range(0..2))); // mimics uploading
+        //        (path, mark_uploaded)
+        //    });
+        //}
+        //
+        //while let Some(res) = set.join_next().await {
+        //    let (path, mark_uploaded) = res.unwrap();
+        //    mark_uploaded();
+        //    println!("Uploaded {}", path.path);
+        //}
 
-        let all_paths = closure.closure.iter().collect::<HashSet<_>>();
-        assert_eq!(all_paths, uploaded.into_inner());
-    }
-
-    #[rstest]
-    fn all_paths_sorted(#[files("src/fixtures/*.json")] fixture_path: PathBuf) {
-        let json_data = std::fs::read(fixture_path).unwrap();
-        let closure: Closure = serde_json::from_slice(&json_data).unwrap();
-        let graph = ClosureGraph::from(&closure);
-
-        // These are all the store that we expect to get sorted.
-        let all_paths = closure.closure.iter().collect::<HashSet<_>>();
-        // We convert the `Vec`'s to `HashSet`'s because we don't care for the order of the `Vec`..
-        let all_paths_sorted = graph
-            .sort()
-            .unwrap()
-            .into_iter()
-            .inspect(|p| println!("{}", p.path)) // Print each path for easier debugging.
-            .collect::<HashSet<_>>();
-
-        // We check that we didn't lose a path during the sorting.
-        assert_eq!(all_paths, all_paths_sorted);
+        //let all_paths = c.closure.iter().collect::<HashSet<_>>();
+        //assert_eq!(all_paths, *graph.uploaded.read().await);
     }
 }

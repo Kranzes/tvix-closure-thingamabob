@@ -4,14 +4,18 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+nix-compat = { git = "https://code.tvl.fyi/depot.git:/tvix/nix-compat.git" }
+petgraph = { version = "0.6.4", features = ["graphmap"], default-features = false }
+tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "sync", "fs", "time"], default-features = false }
+futures-util = { version = "0.3.30", default-features = false, features = ["std"] }
+rand = "0.8.5"
+tokio-stream = { version = "0.1.15", default-features = false }
+async-stream = "0.3.5"
+
+[dev-dependencies]
+rstest = { version = "0.18.2", default-features = false }
 serde = { version = "1.0.197", default-features = false }
 serde_json = {version = "1.0.114", default-features = false }
-nix-compat = { git = "https://code.tvl.fyi/depot.git:/tvix/nix-compat.git" }
-rstest = { version = "0.18.2", default-features = false }
-petgraph = { version = "0.6.4", features = ["graphmap"], default-features = false }
-tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "sync", "time"], default-features = false }
-futures-buffered = "0.2.4"
-futures = { version = "0.3.30", features = ["std", "async-await"], default-features = false }
 
 [profile.release]
 lto = true

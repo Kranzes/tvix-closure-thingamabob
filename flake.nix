@@ -47,6 +47,7 @@
                 cargo-nextest
                 cargo-watch
                 cargo-info
+                tokio-console
               ];
             };
             default = config.devShells.${package.name};
